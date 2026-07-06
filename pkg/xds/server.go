@@ -16,6 +16,7 @@ package xds
 
 import (
 	"strings"
+	"sync"
 	"time"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -146,6 +147,9 @@ type Connection struct {
 	// Both ADS and SDS streams implement this interface
 	stream DiscoveryStream
 
+	// streamWriteMutex is used to synchronize concurrent writes to the stream.
+	streamWriteMutex sync.Mutex
+
 	// initialized channel will be closed when proxy is initialized. Pushes, or anything accessing
 	// the proxy, should not be started until this channel is closed.
 	initialized chan struct{}
@@ -249,47 +253,52 @@ func Stream(ctx ConnectionContext) error {
 	// initialization is complete.
 	<-con.initialized
 
-	for {
-		// Go select{} statements are not ordered; the same channel can be chosen many times.
-		// For requests, these are higher priority (client may be blocked on startup until these are done)
-		// and often very cheap to handle (simple ACK), so we check it first.
-		select {
-		case req, ok := <-con.reqChan:
-			if ok {
-				if err := ctx.Process(req); err != nil {
-					return err
+	errChan := make(chan error, 2)
+	done := make(chan struct{})
+	defer close(done)
+
+	// Goroutine for handling client requests
+	go func() {
+		for {
+			select {
+			case req, ok := <-con.reqChan:
+				if !ok {
+					err := <-con.errorChan
+					errChan <- err
+					return
 				}
-			} else {
-				// Remote side closed connection or error processing the request.
-				return <-con.errorChan
-			}
-		case <-con.stop:
-			return nil
-		default:
-		}
-		// If there wasn't already a request, poll for requests and pushes. Note: if we have a huge
-		// amount of incoming requests, we may still send some pushes, as we do not `continue` above;
-		// however, requests will be handled ~2x as much as pushes. This ensures a wave of requests
-		// cannot completely starve pushes. However, this scenario is unlikely.
-		select {
-		case req, ok := <-con.reqChan:
-			if ok {
 				if err := ctx.Process(req); err != nil {
-					return err
+					errChan <- err
+					return
 				}
-			} else {
-				// Remote side closed connection or error processing the request.
-				return <-con.errorChan
+			case <-con.stop:
+				errChan <- nil
+				return
+			case <-done:
+				return
 			}
-		case pushEv := <-con.pushChannel:
-			err := ctx.Push(pushEv)
-			if err != nil {
-				return err
-			}
-		case <-con.stop:
-			return nil
 		}
-	}
+	}()
+
+	// Goroutine for handling pushes
+	go func() {
+		for {
+			select {
+			case pushEv := <-con.pushChannel:
+				if err := ctx.Push(pushEv); err != nil {
+					errChan <- err
+					return
+				}
+			case <-con.stop:
+				errChan <- nil
+				return
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	return <-errChan
 }
 
 func Receive(ctx ConnectionContext) {
@@ -456,6 +465,8 @@ func shouldUnsubscribe(request *discovery.DiscoveryRequest) bool {
 
 func Send(ctx ConnectionContext, res *discovery.DiscoveryResponse) error {
 	conn := ctx.XdsConnection()
+	conn.streamWriteMutex.Lock()
+	defer conn.streamWriteMutex.Unlock()
 	sendResponse := func() error {
 		start := time.Now()
 		defer func() { RecordSendTime(time.Since(start)) }()
