@@ -145,11 +145,17 @@ func (s *DiscoveryServer) processRequest(req *discovery.DiscoveryRequest, con *C
 		return nil
 	}
 
+	con.proxy.RLock()
+	lastPushContext := con.proxy.LastPushContext
+	lastPushTime := con.proxy.LastPushTime
+	sidecarScope := con.proxy.SidecarScope
+	con.proxy.RUnlock()
+
 	// For now, don't let xDS piggyback debug requests start watchers.
 	if strings.HasPrefix(req.TypeUrl, v3.DebugType) {
 		return s.pushXds(con,
 			&model.WatchedResource{TypeUrl: req.TypeUrl, ResourceNames: sets.New(req.ResourceNames...)},
-			&model.PushRequest{Push: con.proxy.LastPushContext, Forced: true})
+			&model.PushRequest{Push: lastPushContext, Forced: true})
 	}
 
 	shouldRespond, delta := xds.ShouldRespond(con.proxy, con.ID(), req)
@@ -158,13 +164,13 @@ func (s *DiscoveryServer) processRequest(req *discovery.DiscoveryRequest, con *C
 	}
 
 	request := &model.PushRequest{
-		Push:   con.proxy.LastPushContext,
+		Push:   lastPushContext,
 		Reason: model.NewReasonStats(model.ProxyRequest),
 
 		// The usage of LastPushTime (rather than time.Now()), is critical here for correctness; This time
 		// is used by the XDS cache to determine if a entry is stale. If we use Now() with an old push context,
 		// we may end up overriding active cache entries with stale ones.
-		Start:  con.proxy.LastPushTime,
+		Start:  lastPushTime,
 		Delta:  delta,
 		Forced: true,
 	}
@@ -173,7 +179,7 @@ func (s *DiscoveryServer) processRequest(req *discovery.DiscoveryRequest, con *C
 	// It can happen when `processRequest` comes after push context has been updated(s.initPushContext),
 	// but proxy's SidecarScope has been updated(s.computeProxyState -> SetSidecarScope) due to optimizations that skip sidecar scope
 	// computation.
-	if con.proxy.SidecarScope != nil && con.proxy.SidecarScope.Version != request.Push.PushVersion {
+	if sidecarScope != nil && sidecarScope.Version != request.Push.PushVersion {
 		s.computeProxyState(con.proxy, request)
 	}
 	return s.pushXds(con, con.proxy.GetWatchedResource(req.TypeUrl), request)
@@ -619,18 +625,22 @@ func (conn *Connection) Clusters() []string {
 // watchedResourcesByOrder returns the ordered list of
 // watched resources for the proxy, ordered in accordance with known push order.
 func (conn *Connection) watchedResourcesByOrder() []*model.WatchedResource {
-	allWatched := conn.proxy.ShallowCloneWatchedResources()
-	ordered := make([]*model.WatchedResource, 0, len(allWatched))
+	conn.proxy.RLock()
+	defer conn.proxy.RUnlock()
+
+	ordered := make([]*model.WatchedResource, 0, len(conn.proxy.WatchedResources))
 	// first add all known types, in order
 	for _, tp := range PushOrder {
-		if allWatched[tp] != nil {
-			ordered = append(ordered, allWatched[tp])
+		if wr := conn.proxy.WatchedResources[tp]; wr != nil {
+			wrCopy := *wr
+			ordered = append(ordered, &wrCopy)
 		}
 	}
 	// Then add any undeclared types
-	for tp, res := range allWatched {
+	for tp, wr := range conn.proxy.WatchedResources {
 		if !KnownOrderedTypeUrls.Contains(tp) {
-			ordered = append(ordered, res)
+			wrCopy := *wr
+			ordered = append(ordered, &wrCopy)
 		}
 	}
 	return ordered
