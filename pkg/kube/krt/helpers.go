@@ -115,12 +115,20 @@ type keyPartsCollection[T any] interface {
 }
 
 // GetByKeyParts retrieves an object by namespace and name without requiring callers to allocate their joined key.
+// It supports both KRT namespace/name key encodings: namespace/name and name for an empty namespace.
 func GetByKeyParts[T any](c Collection[T], namespace, name string) (T, bool) {
 	if keyed, ok := c.(keyPartsCollection[T]); ok {
 		return keyed.getByKeyParts(namespace, name)
 	}
-	if obj := c.GetKey(namespace + "/" + name); obj != nil {
+	key := namespace + "/" + name
+	if obj := c.GetKey(key); obj != nil && GetKey(*obj) == key {
 		return *obj, true
+	}
+	if namespace == "" {
+		key = keyFunc(name, namespace)
+		if obj := c.GetKey(key); obj != nil && GetKey(*obj) == key {
+			return *obj, true
+		}
 	}
 	var zero T
 	return zero, false

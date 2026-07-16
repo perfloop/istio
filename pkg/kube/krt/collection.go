@@ -735,7 +735,11 @@ func (h *manyCollection[I, O]) getByKeyParts(namespace, name string) (O, bool) {
 		var zero O
 		return zero, false
 	}
-	result, found := h.collectionState.outputs[Key[O](namespace+"/"+name)]
+	key := namespace + "/" + name
+	result, found := h.collectionState.outputs[Key[O](key)]
+	if !found && namespace == "" {
+		result, found = h.collectionState.outputs[Key[O](keyFunc(name, namespace))]
+	}
 	h.mu.RUnlock()
 	return result, found
 }

@@ -21,6 +21,14 @@ import (
 	"istio.io/istio/pkg/test/util/assert"
 )
 
+type emptyNamespaceKey struct {
+	Name string
+}
+
+func (k emptyNamespaceKey) ResourceName() string {
+	return k.Name
+}
+
 func TestGetByKeyParts(t *testing.T) {
 	opts := testOptions(t)
 	first := krt.NewStaticCollection[Named](nil, []Named{{"ns", "first"}}, opts.WithName("first")...)
@@ -32,9 +40,16 @@ func TestGetByKeyParts(t *testing.T) {
 		return nil
 	}, opts.WithName("empty")...)
 	joined := krt.JoinCollection([]krt.Collection[Named]{first, second}, opts.WithName("joined")...)
+	present := Named{Namespace: "ns", Name: "present"}
+	singleton := krt.NewStatic(&present, true, opts.WithName("singleton")...)
+	emptyNamespace := krt.NewStaticCollection[emptyNamespaceKey](nil, []emptyNamespaceKey{{Name: "empty"}}, opts.WithName("empty-namespace")...)
+	emptyNamespaceDerived := krt.NewCollection(emptyNamespace, func(_ krt.HandlerContext, item emptyNamespaceKey) *emptyNamespaceKey {
+		return &item
+	}, opts.WithName("empty-namespace-derived")...)
 	assert.EventuallyEqual(t, derived.HasSynced, true)
 	assert.EventuallyEqual(t, empty.HasSynced, true)
 	assert.EventuallyEqual(t, joined.HasSynced, true)
+	assert.EventuallyEqual(t, emptyNamespaceDerived.HasSynced, true)
 
 	got, found := krt.GetByKeyParts(first, "ns", "first")
 	assert.Equal(t, found, true)
@@ -51,6 +66,19 @@ func TestGetByKeyParts(t *testing.T) {
 	got, found = krt.GetByKeyParts(joined, "ns", "second")
 	assert.Equal(t, found, true)
 	assert.Equal(t, got, Named{"ns", "second"})
+
+	got, found = krt.GetByKeyParts(singleton.AsCollection(), "ns", "present")
+	assert.Equal(t, found, true)
+	assert.Equal(t, got, present)
+	_, found = krt.GetByKeyParts(singleton.AsCollection(), "ns", "missing")
+	assert.Equal(t, found, false)
+
+	gotEmptyNamespace, found := krt.GetByKeyParts(emptyNamespace, "", "empty")
+	assert.Equal(t, found, true)
+	assert.Equal(t, gotEmptyNamespace, emptyNamespaceKey{Name: "empty"})
+	gotEmptyNamespace, found = krt.GetByKeyParts(emptyNamespaceDerived, "", "empty")
+	assert.Equal(t, found, true)
+	assert.Equal(t, gotEmptyNamespace, emptyNamespaceKey{Name: "empty"})
 }
 
 func TestStaticCollection(t *testing.T) {
