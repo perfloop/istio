@@ -38,26 +38,26 @@ const (
 )
 
 func (a *index) Policies(requested sets.Set[model.ConfigKey]) []model.WorkloadAuthorization {
-	// TODO: use many Gets instead of List?
-	cfgs := a.authorizationPolicies.List()
-	l := len(cfgs)
 	if len(requested) > 0 {
-		l = len(requested)
+		res := make([]model.WorkloadAuthorization, 0, len(requested))
+		for key := range requested {
+			cfg := a.authorizationPolicies.GetKey(key.Namespace + "/" + key.Name)
+			// A nil Authorization means the WorkloadAuthorization contains an error condition which needs to be written but
+			// is otherwise an invalid policy and will be ignored.
+			if cfg == nil || cfg.Authorization == nil {
+				continue
+			}
+			res = append(res, *cfg)
+		}
+		return res
 	}
-	res := make([]model.WorkloadAuthorization, 0, l)
-	for _, cfg := range cfgs {
-		// a nil Authorization means the WorkloadAuthorization contains an error condition which needs to be written but
-		// is otherwise an invalid policy and will be ignored
-		if cfg.Authorization == nil {
-			continue
-		}
-		k := model.ConfigKey{
-			Kind:      kind.AuthorizationPolicy,
-			Name:      cfg.Authorization.Name,
-			Namespace: cfg.Authorization.Namespace,
-		}
 
-		if len(requested) > 0 && !requested.Contains(k) {
+	cfgs := a.authorizationPolicies.List()
+	res := make([]model.WorkloadAuthorization, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		// A nil Authorization means the WorkloadAuthorization contains an error condition which needs to be written but
+		// is otherwise an invalid policy and will be ignored.
+		if cfg.Authorization == nil {
 			continue
 		}
 		res = append(res, cfg)
