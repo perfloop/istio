@@ -26,6 +26,7 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pkg/config/schema/kind"
+	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/log"
 	"istio.io/istio/pkg/maps"
 	"istio.io/istio/pkg/slices"
@@ -38,18 +39,20 @@ const (
 )
 
 func (a *index) Policies(requested sets.Set[model.ConfigKey]) []model.WorkloadAuthorization {
-	if len(requested) > 0 {
-		res := make([]model.WorkloadAuthorization, 0, len(requested))
+	if len(requested) == 1 {
+		res := make([]model.WorkloadAuthorization, 0, 1)
 		for key := range requested {
-			cfg := a.authorizationPolicies.GetKey(key.Namespace + "/" + key.Name)
+			if key.Kind != kind.AuthorizationPolicy {
+				return res
+			}
+			cfg, found := krt.GetByKeyParts(a.authorizationPolicies, key.Namespace, key.Name)
 			// A nil Authorization means the WorkloadAuthorization contains an error condition which needs to be written but
 			// is otherwise an invalid policy and will be ignored.
-			if cfg == nil || cfg.Authorization == nil {
-				continue
+			if !found || cfg.Authorization == nil {
+				return res
 			}
-			res = append(res, *cfg)
+			return append(res, cfg)
 		}
-		return res
 	}
 
 	cfgs := a.authorizationPolicies.List()
@@ -58,6 +61,14 @@ func (a *index) Policies(requested sets.Set[model.ConfigKey]) []model.WorkloadAu
 		// A nil Authorization means the WorkloadAuthorization contains an error condition which needs to be written but
 		// is otherwise an invalid policy and will be ignored.
 		if cfg.Authorization == nil {
+			continue
+		}
+		k := model.ConfigKey{
+			Kind:      kind.AuthorizationPolicy,
+			Name:      cfg.Authorization.Name,
+			Namespace: cfg.Authorization.Namespace,
+		}
+		if len(requested) > 0 && !requested.Contains(k) {
 			continue
 		}
 		res = append(res, cfg)

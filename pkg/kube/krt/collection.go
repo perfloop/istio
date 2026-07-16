@@ -728,6 +728,13 @@ func (h *manyCollection[I, O]) GetKey(k string) (res *O) {
 	return nil
 }
 
+func (h *manyCollection[I, O]) getByKeyParts(namespace, name string) (O, bool) {
+	h.mu.RLock()
+	result, found := h.collectionState.outputs[Key[O](namespace+"/"+name)]
+	h.mu.RUnlock()
+	return result, found
+}
+
 func (h *manyCollection[I, O]) List() (res []O) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

@@ -54,6 +54,16 @@ func (j *join[T]) GetKey(k string) *T {
 	return nil
 }
 
+func (j *join[T]) getByKeyParts(namespace, name string) (T, bool) {
+	for _, c := range j.collections {
+		if result, found := GetByKeyParts(c, namespace, name); found {
+			return result, true
+		}
+	}
+	var zero T
+	return zero, false
+}
+
 func (j *join[T]) List() []T {
 	var res []T
 	if j.uncheckedOverlap {

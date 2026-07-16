@@ -214,6 +214,13 @@ func (s *staticList[T]) GetKey(k string) *T {
 	return nil
 }
 
+func (s *staticList[T]) getByKeyParts(namespace, name string) (T, bool) {
+	s.mu.RLock()
+	result, found := s.vals[namespace+"/"+name]
+	s.mu.RUnlock()
+	return result, found
+}
+
 func (s *staticList[T]) Metadata() Metadata {
 	return s.metadata
 }

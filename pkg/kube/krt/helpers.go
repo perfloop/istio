@@ -110,6 +110,22 @@ func GetKey[O any](a O) string {
 	panic(fmt.Sprintf("Cannot get Key, got %T", a))
 }
 
+type keyPartsCollection[T any] interface {
+	getByKeyParts(namespace, name string) (T, bool)
+}
+
+// GetByKeyParts retrieves an object by namespace and name without requiring callers to allocate their joined key.
+func GetByKeyParts[T any](c Collection[T], namespace, name string) (T, bool) {
+	if keyed, ok := c.(keyPartsCollection[T]); ok {
+		return keyed.getByKeyParts(namespace, name)
+	}
+	if obj := c.GetKey(namespace + "/" + name); obj != nil {
+		return *obj, true
+	}
+	var zero T
+	return zero, false
+}
+
 // Named is a convenience struct. It is ideal to be embedded into a type that has a name and namespace,
 // and will automatically implement the various interfaces to return the name, namespace, and a key based on these two.
 type Named struct {

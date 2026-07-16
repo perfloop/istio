@@ -43,7 +43,8 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 		Name:      peerAuthenticationName,
 		Namespace: testNS,
 	})
-	s.addPolicy(t, peerAuthenticationName, testNS, map[string]string{"app": "a"}, gvk.PeerAuthentication, func(o controllers.Object) {
+	peerAuthenticationSelector := map[string]string{"app": "a"}
+	modifyPeerAuthentication := func(o controllers.Object) {
 		policy := o.(*securityclient.PeerAuthentication)
 		policy.Spec.Mtls = &auth.PeerAuthentication_MutualTLS{
 			Mode: auth.PeerAuthentication_MutualTLS_PERMISSIVE,
@@ -53,12 +54,29 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 				Mode: auth.PeerAuthentication_MutualTLS_STRICT,
 			},
 		}
-	})
+	}
+	s.addPolicy(t, peerAuthenticationName, testNS, peerAuthenticationSelector, gvk.PeerAuthentication, modifyPeerAuthentication)
 	s.assertEvent(t, convertedPeerAuthenticationName, staticStrictPolicyName)
 
+	authorizationKey := model.ConfigKey{Kind: kind.AuthorizationPolicy, Name: "authorization", Namespace: testNS}
+	convertedPeerAuthenticationKey := model.ConfigKey{
+		Kind:      kind.AuthorizationPolicy,
+		Name:      convertedPeerAuthenticationName,
+		Namespace: testNS,
+	}
+	assert.Equal(t, policyResourceNames(s.Policies(sets.New(authorizationKey))), []string{testNS + "/authorization"})
+	assert.Equal(t, policyResourceNames(s.Policies(sets.New(model.ConfigKey{
+		Kind:      kind.ServiceEntry,
+		Name:      authorizationKey.Name,
+		Namespace: authorizationKey.Namespace,
+	}))), []string{})
+	assert.Equal(t, policyResourceNames(s.Policies(sets.New(convertedPeerAuthenticationKey))), []string{
+		testNS + "/" + convertedPeerAuthenticationName,
+	})
+
 	requested := sets.New(
-		model.ConfigKey{Kind: kind.AuthorizationPolicy, Name: "authorization", Namespace: testNS},
-		model.ConfigKey{Kind: kind.AuthorizationPolicy, Name: convertedPeerAuthenticationName, Namespace: testNS},
+		authorizationKey,
+		convertedPeerAuthenticationKey,
 		model.ConfigKey{Kind: kind.AuthorizationPolicy, Name: "deleted", Namespace: testNS},
 	)
 	assert.Equal(t, policyResourceNames(s.Policies(requested)), []string{
