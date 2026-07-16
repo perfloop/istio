@@ -73,6 +73,11 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 	assert.Equal(t, policyResourceNames(s.Policies(sets.New(convertedPeerAuthenticationKey))), []string{
 		testNS + "/" + convertedPeerAuthenticationName,
 	})
+	assert.Equal(t, policyResourceNames(s.Policies(sets.New(model.ConfigKey{
+		Kind:      kind.AuthorizationPolicy,
+		Name:      "deleted",
+		Namespace: testNS,
+	}))), []string{})
 
 	requested := sets.New(
 		authorizationKey,
@@ -88,6 +93,19 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 		testNS + "/authorization",
 		testNS + "/" + convertedPeerAuthenticationName,
 	})
+
+	const invalidPolicyName = "invalid"
+	s.addPolicy(t, invalidPolicyName, testNS, nil, gvk.AuthorizationPolicy, func(o controllers.Object) {
+		o.(*securityclient.AuthorizationPolicy).Spec.Action = auth.AuthorizationPolicy_AUDIT
+	})
+	assert.EventuallyEqual(t, func() bool {
+		return s.authorizationPolicies.GetKey("/") != nil
+	}, true)
+	assert.Equal(t, policyResourceNames(s.Policies(sets.New(model.ConfigKey{
+		Kind:      kind.AuthorizationPolicy,
+		Name:      invalidPolicyName,
+		Namespace: testNS,
+	}))), []string{})
 }
 
 func policyResourceNames(policies []model.WorkloadAuthorization) []string {
