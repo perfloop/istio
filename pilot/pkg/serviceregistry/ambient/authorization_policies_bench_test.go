@@ -64,20 +64,18 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 		Name:      convertedPeerAuthenticationName,
 		Namespace: testNS,
 	}
-	assert.Equal(t, policyResourceNames(s.Policies(sets.New(authorizationKey))), []string{testNS + "/authorization"})
-	assert.Equal(t, policyResourceNames(s.Policies(sets.New(model.ConfigKey{
+	assertSinglePolicy(t, s.Policies(sets.New(authorizationKey)), testNS+"/authorization")
+	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
 		Kind:      kind.ServiceEntry,
 		Name:      authorizationKey.Name,
 		Namespace: authorizationKey.Namespace,
-	}))), []string{})
-	assert.Equal(t, policyResourceNames(s.Policies(sets.New(convertedPeerAuthenticationKey))), []string{
-		testNS + "/" + convertedPeerAuthenticationName,
-	})
-	assert.Equal(t, policyResourceNames(s.Policies(sets.New(model.ConfigKey{
+	})))
+	assertSinglePolicy(t, s.Policies(sets.New(convertedPeerAuthenticationKey)), testNS+"/"+convertedPeerAuthenticationName)
+	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
 		Kind:      kind.AuthorizationPolicy,
 		Name:      "deleted",
 		Namespace: testNS,
-	}))), []string{})
+	})))
 
 	requested := sets.New(
 		authorizationKey,
@@ -101,11 +99,27 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 	assert.EventuallyEqual(t, func() bool {
 		return s.authorizationPolicies.GetKey("/") != nil
 	}, true)
-	assert.Equal(t, policyResourceNames(s.Policies(sets.New(model.ConfigKey{
+	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
 		Kind:      kind.AuthorizationPolicy,
 		Name:      invalidPolicyName,
 		Namespace: testNS,
-	}))), []string{})
+	})))
+}
+
+func assertSinglePolicy(t *testing.T, policies []model.WorkloadAuthorization, want string) {
+	t.Helper()
+	if len(policies) != 1 {
+		t.Fatalf("Policies() returned %d policies, want 1", len(policies))
+	}
+	if policies[0].Authorization == nil {
+		t.Fatal("Policies() returned a policy without an Authorization")
+	}
+	assert.Equal(t, policies[0].ResourceName(), want)
+}
+
+func assertNoPolicies(t *testing.T, policies []model.WorkloadAuthorization) {
+	t.Helper()
+	assert.Equal(t, len(policies), 0)
 }
 
 func policyResourceNames(policies []model.WorkloadAuthorization) []string {
