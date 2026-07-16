@@ -34,6 +34,12 @@ import (
 func TestPoliciesRequestedAndFull(t *testing.T) {
 	s := newAmbientTestServer(t, testC, testNW, "")
 
+	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
+		Kind:      kind.AuthorizationPolicy,
+		Name:      "missing",
+		Namespace: testNS,
+	})))
+
 	s.addPolicy(t, "authorization", testNS, nil, gvk.AuthorizationPolicy, nil)
 	s.assertEvent(t, "authorization")
 
@@ -64,6 +70,12 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 		Name:      convertedPeerAuthenticationName,
 		Namespace: testNS,
 	}
+	assertSinglePolicy(t, s.Policies(sets.New(authorizationKey)), testNS+"/authorization")
+	s.deletePolicy("authorization", testNS, gvk.AuthorizationPolicy)
+	s.assertEvent(t, "authorization")
+	assertNoPolicies(t, s.Policies(sets.New(authorizationKey)))
+	s.addPolicy(t, "authorization", testNS, nil, gvk.AuthorizationPolicy, nil)
+	s.assertEvent(t, "authorization")
 	assertSinglePolicy(t, s.Policies(sets.New(authorizationKey)), testNS+"/authorization")
 	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
 		Kind:      kind.ServiceEntry,

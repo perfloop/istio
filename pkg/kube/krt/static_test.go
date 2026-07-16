@@ -21,6 +21,38 @@ import (
 	"istio.io/istio/pkg/test/util/assert"
 )
 
+func TestGetByKeyParts(t *testing.T) {
+	opts := testOptions(t)
+	first := krt.NewStaticCollection[Named](nil, []Named{{"ns", "first"}}, opts.WithName("first")...)
+	second := krt.NewStaticCollection[Named](nil, []Named{{"ns", "second"}}, opts.WithName("second")...)
+	derived := krt.NewCollection(first, func(_ krt.HandlerContext, item Named) *Named {
+		return &item
+	}, opts.WithName("derived")...)
+	empty := krt.NewCollection(first, func(_ krt.HandlerContext, _ Named) *Named {
+		return nil
+	}, opts.WithName("empty")...)
+	joined := krt.JoinCollection([]krt.Collection[Named]{first, second}, opts.WithName("joined")...)
+	assert.EventuallyEqual(t, derived.HasSynced, true)
+	assert.EventuallyEqual(t, empty.HasSynced, true)
+	assert.EventuallyEqual(t, joined.HasSynced, true)
+
+	got, found := krt.GetByKeyParts(first, "ns", "first")
+	assert.Equal(t, found, true)
+	assert.Equal(t, got, Named{"ns", "first"})
+	_, found = krt.GetByKeyParts(first, "ns", "missing")
+	assert.Equal(t, found, false)
+
+	got, found = krt.GetByKeyParts(derived, "ns", "first")
+	assert.Equal(t, found, true)
+	assert.Equal(t, got, Named{"ns", "first"})
+	_, found = krt.GetByKeyParts(empty, "ns", "first")
+	assert.Equal(t, found, false)
+
+	got, found = krt.GetByKeyParts(joined, "ns", "second")
+	assert.Equal(t, found, true)
+	assert.Equal(t, got, Named{"ns", "second"})
+}
+
 func TestStaticCollection(t *testing.T) {
 	opts := testOptions(t)
 	c := krt.NewStaticCollection[Named](nil, []Named{{"ns", "a"}}, opts.WithName("c")...)
