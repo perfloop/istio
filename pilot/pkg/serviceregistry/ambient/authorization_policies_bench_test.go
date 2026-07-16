@@ -77,6 +77,11 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 	s.addPolicy(t, "authorization", testNS, nil, gvk.AuthorizationPolicy, nil)
 	s.assertEvent(t, "authorization")
 	assertSinglePolicy(t, s.Policies(sets.New(authorizationKey)), testNS+"/authorization")
+	// A slash-delimited resource key must not make an empty-namespace ConfigKey alias this policy.
+	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
+		Kind: kind.AuthorizationPolicy,
+		Name: authorizationKey.Namespace + "/" + authorizationKey.Name,
+	})))
 	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
 		Kind:      kind.ServiceEntry,
 		Name:      authorizationKey.Name,

@@ -28,6 +28,7 @@ type join[T any] struct {
 	collectionName   string
 	id               collectionUID
 	collections      []internalCollection[T]
+	emptyCollections []emptyCollection
 	synced           <-chan struct{}
 	uncheckedOverlap bool
 	syncer           Syncer
@@ -52,6 +53,15 @@ func (j *join[T]) GetKey(k string) *T {
 		}
 	}
 	return nil
+}
+
+func (j *join[T]) isEmpty() bool {
+	for _, c := range j.emptyCollections {
+		if !c.isEmpty() {
+			return false
+		}
+	}
+	return true
 }
 
 func (j *join[T]) getByKeyParts(namespace, name string) (T, bool) {
@@ -398,6 +408,14 @@ func JoinCollection[T any](cs []Collection[T], opts ...CollectionOption) Collect
 	if o.stop == nil {
 		panic("no stop channel")
 	}
+	emptyCollections := make([]emptyCollection, 0, len(c))
+	for _, collection := range c {
+		empty, ok := collection.(emptyCollection)
+		if !ok {
+			empty = emptyFallback[T]{collection: collection}
+		}
+		emptyCollections = append(emptyCollections, empty)
+	}
 	// if only one collection, no need to check for overlap
 	uncheckedOverlap := o.joinUnchecked || len(c) == 1
 	j := &join[T]{
@@ -405,6 +423,7 @@ func JoinCollection[T any](cs []Collection[T], opts ...CollectionOption) Collect
 		id:               nextUID(),
 		synced:           synced,
 		collections:      c,
+		emptyCollections: emptyCollections,
 		uncheckedOverlap: uncheckedOverlap,
 		stop:             o.stop,
 		syncer: channelSyncer{

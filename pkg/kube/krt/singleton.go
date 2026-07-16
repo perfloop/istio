@@ -81,6 +81,10 @@ func (d *static[T]) GetKey(k string) *T {
 	return d.val.Load()
 }
 
+func (d *static[T]) isEmpty() bool {
+	return d.val.Load() == nil
+}
+
 func (d *static[T]) List() []T {
 	v := d.val.Load()
 	if v == nil {

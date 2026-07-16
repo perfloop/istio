@@ -214,13 +214,15 @@ func (s *staticList[T]) GetKey(k string) *T {
 	return nil
 }
 
+func (s *staticList[T]) isEmpty() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.vals) == 0
+}
+
 func (s *staticList[T]) getByKeyParts(namespace, name string) (T, bool) {
 	s.mu.RLock()
-	key := namespace + "/" + name
-	result, found := s.vals[key]
-	if !found && namespace == "" {
-		result, found = s.vals[keyFunc(name, namespace)]
-	}
+	result, found := s.vals[namespace+"/"+name]
 	s.mu.RUnlock()
 	return result, found
 }

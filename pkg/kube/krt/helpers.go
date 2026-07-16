@@ -114,24 +114,43 @@ type keyPartsCollection[T any] interface {
 	getByKeyParts(namespace, name string) (T, bool)
 }
 
-// GetByKeyParts retrieves an object by namespace and name without requiring callers to allocate their joined key.
-// It supports both KRT namespace/name key encodings: namespace/name and name for an empty namespace.
-func GetByKeyParts[T any](c Collection[T], namespace, name string) (T, bool) {
-	if keyed, ok := c.(keyPartsCollection[T]); ok {
-		return keyed.getByKeyParts(namespace, name)
-	}
+type emptyCollection interface {
+	isEmpty() bool
+}
+
+type emptyFallback[T any] struct {
+	collection Collection[T]
+}
+
+func (c emptyFallback[T]) isEmpty() bool {
+	return len(c.collection.List()) == 0
+}
+
+func getByKeyPartsFallback[T any](c Collection[T], namespace, name string) (T, bool) {
 	key := namespace + "/" + name
 	if obj := c.GetKey(key); obj != nil && GetKey(*obj) == key {
 		return *obj, true
 	}
-	if namespace == "" {
-		key = keyFunc(name, namespace)
-		if obj := c.GetKey(key); obj != nil && GetKey(*obj) == key {
-			return *obj, true
-		}
-	}
 	var zero T
 	return zero, false
+}
+
+// GetByKeyParts retrieves an object by namespace and name without requiring callers to allocate their joined key.
+// It requires the collection to use KRT's namespace/name key encoding, including /name for an empty namespace.
+func GetByKeyParts[T any](c Collection[T], namespace, name string) (T, bool) {
+	if keyed, ok := c.(keyPartsCollection[T]); ok {
+		return keyed.getByKeyParts(namespace, name)
+	}
+	return getByKeyPartsFallback(c, namespace, name)
+}
+
+// IsEmpty reports whether c currently has no objects.
+// Collections without an internal empty check fall back to List.
+func IsEmpty[T any](c Collection[T]) bool {
+	if empty, ok := c.(emptyCollection); ok {
+		return empty.isEmpty()
+	}
+	return emptyFallback[T]{collection: c}.isEmpty()
 }
 
 // Named is a convenience struct. It is ideal to be embedded into a type that has a name and namespace,

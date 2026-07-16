@@ -21,14 +21,6 @@ import (
 	"istio.io/istio/pkg/test/util/assert"
 )
 
-type emptyNamespaceKey struct {
-	Name string
-}
-
-func (k emptyNamespaceKey) ResourceName() string {
-	return k.Name
-}
-
 func TestGetByKeyParts(t *testing.T) {
 	opts := testOptions(t)
 	first := krt.NewStaticCollection[Named](nil, []Named{{"ns", "first"}}, opts.WithName("first")...)
@@ -39,15 +31,19 @@ func TestGetByKeyParts(t *testing.T) {
 	empty := krt.NewCollection(first, func(_ krt.HandlerContext, _ Named) *Named {
 		return nil
 	}, opts.WithName("empty")...)
+	emptyJoined := krt.JoinCollection([]krt.Collection[Named]{empty}, opts.WithName("empty-joined")...)
 	joined := krt.JoinCollection([]krt.Collection[Named]{first, second}, opts.WithName("joined")...)
 	present := Named{Namespace: "ns", Name: "present"}
 	singleton := krt.NewStatic(&present, true, opts.WithName("singleton")...)
-	emptyNamespace := krt.NewStaticCollection[emptyNamespaceKey](nil, []emptyNamespaceKey{{Name: "empty"}}, opts.WithName("empty-namespace")...)
-	emptyNamespaceDerived := krt.NewCollection(emptyNamespace, func(_ krt.HandlerContext, item emptyNamespaceKey) *emptyNamespaceKey {
+	emptyNamespaceValue := Named{Name: "empty"}
+	emptyNamespaceSingleton := krt.NewStatic(&emptyNamespaceValue, true, opts.WithName("empty-namespace-singleton")...)
+	emptyNamespace := krt.NewStaticCollection[Named](nil, []Named{emptyNamespaceValue}, opts.WithName("empty-namespace")...)
+	emptyNamespaceDerived := krt.NewCollection(emptyNamespace, func(_ krt.HandlerContext, item Named) *Named {
 		return &item
 	}, opts.WithName("empty-namespace-derived")...)
 	assert.EventuallyEqual(t, derived.HasSynced, true)
 	assert.EventuallyEqual(t, empty.HasSynced, true)
+	assert.EventuallyEqual(t, emptyJoined.HasSynced, true)
 	assert.EventuallyEqual(t, joined.HasSynced, true)
 	assert.EventuallyEqual(t, emptyNamespaceDerived.HasSynced, true)
 
@@ -56,29 +52,38 @@ func TestGetByKeyParts(t *testing.T) {
 	assert.Equal(t, got, Named{"ns", "first"})
 	_, found = krt.GetByKeyParts(first, "ns", "missing")
 	assert.Equal(t, found, false)
+	assert.Equal(t, krt.IsEmpty(first), false)
 
 	got, found = krt.GetByKeyParts(derived, "ns", "first")
 	assert.Equal(t, found, true)
 	assert.Equal(t, got, Named{"ns", "first"})
 	_, found = krt.GetByKeyParts(empty, "ns", "first")
 	assert.Equal(t, found, false)
+	assert.Equal(t, krt.IsEmpty(emptyJoined), true)
 
 	got, found = krt.GetByKeyParts(joined, "ns", "second")
 	assert.Equal(t, found, true)
 	assert.Equal(t, got, Named{"ns", "second"})
+	assert.Equal(t, krt.IsEmpty(joined), false)
 
+	// Static GetKey ignores its argument, so the generic fallback must verify the returned object's key.
 	got, found = krt.GetByKeyParts(singleton.AsCollection(), "ns", "present")
 	assert.Equal(t, found, true)
 	assert.Equal(t, got, present)
 	_, found = krt.GetByKeyParts(singleton.AsCollection(), "ns", "missing")
 	assert.Equal(t, found, false)
+	_, found = krt.GetByKeyParts(singleton.AsCollection(), "", "ns/present")
+	assert.Equal(t, found, false)
 
-	gotEmptyNamespace, found := krt.GetByKeyParts(emptyNamespace, "", "empty")
+	gotEmptyNamespace, found := krt.GetByKeyParts(emptyNamespaceSingleton.AsCollection(), "", "empty")
 	assert.Equal(t, found, true)
-	assert.Equal(t, gotEmptyNamespace, emptyNamespaceKey{Name: "empty"})
+	assert.Equal(t, gotEmptyNamespace, emptyNamespaceValue)
+	gotEmptyNamespace, found = krt.GetByKeyParts(emptyNamespace, "", "empty")
+	assert.Equal(t, found, true)
+	assert.Equal(t, gotEmptyNamespace, emptyNamespaceValue)
 	gotEmptyNamespace, found = krt.GetByKeyParts(emptyNamespaceDerived, "", "empty")
 	assert.Equal(t, found, true)
-	assert.Equal(t, gotEmptyNamespace, emptyNamespaceKey{Name: "empty"})
+	assert.Equal(t, gotEmptyNamespace, emptyNamespaceValue)
 }
 
 func TestStaticCollection(t *testing.T) {

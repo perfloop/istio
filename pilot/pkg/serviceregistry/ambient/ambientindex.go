@@ -17,7 +17,6 @@ package ambient
 import (
 	"net/netip"
 	"strings"
-	"sync/atomic"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -110,8 +109,7 @@ type index struct {
 
 	namespaces krt.Collection[model.NamespaceInfo]
 
-	authorizationPolicies    krt.Collection[model.WorkloadAuthorization]
-	authorizationPolicyCount *atomic.Int64
+	authorizationPolicies krt.Collection[model.WorkloadAuthorization]
 
 	statusQueue *statusqueue.StatusQueue
 
@@ -491,18 +489,6 @@ func (a *index) buildAndRegisterPolicyCollections(
 ) (authorizationPolicies krt.Collection[model.WorkloadAuthorization], allPolicies krt.Collection[model.WorkloadAuthorization]) {
 	// AllPolicies includes peer-authentication converted policies
 	authorizationPolicies, allPolicies = PolicyCollections(authzPolicies, peerAuths, a.meshConfig, waypoints, opts, a.Flags)
-	policyCount := &atomic.Int64{}
-	a.authorizationPolicyCount = policyCount
-	allPolicies.RegisterBatch(func(events []krt.Event[model.WorkloadAuthorization]) {
-		for _, event := range events {
-			switch event.Event {
-			case controllers.EventAdd:
-				policyCount.Add(1)
-			case controllers.EventDelete:
-				policyCount.Add(-1)
-			}
-		}
-	}, true)
 	allPolicies.RegisterBatch(PushXds(a.XDSUpdater,
 		func(i model.WorkloadAuthorization) model.ConfigKey {
 			if i.Authorization == nil {

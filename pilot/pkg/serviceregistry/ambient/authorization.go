@@ -39,8 +39,11 @@ const (
 )
 
 func (a *index) Policies(requested sets.Set[model.ConfigKey]) []model.WorkloadAuthorization {
-	if len(requested) == 1 && (a.authorizationPolicyCount == nil || a.authorizationPolicyCount.Load() > 0) {
+	if len(requested) == 1 {
 		res := make([]model.WorkloadAuthorization, 0, 1)
+		if krt.IsEmpty(a.authorizationPolicies) {
+			return res
+		}
 		for key := range requested {
 			if key.Kind != kind.AuthorizationPolicy {
 				return res
