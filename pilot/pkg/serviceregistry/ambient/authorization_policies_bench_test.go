@@ -82,6 +82,12 @@ func TestPoliciesRequestedAndFull(t *testing.T) {
 		Kind: kind.AuthorizationPolicy,
 		Name: authorizationKey.Namespace + "/" + authorizationKey.Name,
 	})))
+	// A trailing key separator from an empty name must not alias this policy either.
+	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
+		Kind:      kind.AuthorizationPolicy,
+		Name:      "",
+		Namespace: authorizationKey.Namespace + "/" + authorizationKey.Name,
+	})))
 	assertNoPolicies(t, s.Policies(sets.New(model.ConfigKey{
 		Kind:      kind.ServiceEntry,
 		Name:      authorizationKey.Name,
