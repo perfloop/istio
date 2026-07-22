@@ -29,6 +29,8 @@ import (
 
 const resourceSizeBenchmarkPayloadBytes = 128
 
+var resourceSizeBenchmarkResourceCount = 4096
+
 type resourceSizeBenchmarkGenerator struct {
 	resources model.Resources
 }
@@ -55,34 +57,36 @@ func (*resourceSizeBenchmarkStream) Context() context.Context {
 	return context.Background()
 }
 
-// newResourceSizePushOperation constructs the production pushXds default-log path
-// with a generated resource set. Its signature intentionally keeps xDS server and
-// connection internals local to this in-package benchmark fixture.
-func newResourceSizePushOperation(t testing.TB, resourceCount int) func() error {
-	t.Helper()
-
-	payload := make([]byte, resourceSizeBenchmarkPayloadBytes)
+func newResourceSizeBenchmarkResources(resourceCount int) model.Resources {
 	resources := make(model.Resources, resourceCount)
 	for i := range resources {
+		payload := make([]byte, resourceSizeBenchmarkPayloadBytes)
+		for j := range payload {
+			payload[j] = byte(i + j)
+		}
 		resources[i] = &discovery.Resource{Resource: &anypb.Any{
 			TypeUrl: "type.googleapis.com/benchmark.Resource",
 			Value:   payload,
 		}}
 	}
+	return resources
+}
 
+func TestPushXdsResourceSize(t *testing.T) {
+	resources := newResourceSizeBenchmarkResources(3)
 	stream := &resourceSizeBenchmarkStream{}
 	server := &DiscoveryServer{Generators: map[string]model.XdsResourceGenerator{
 		v3.ClusterType: resourceSizeBenchmarkGenerator{resources: resources},
 	}}
-	connection := newConnection("benchmark", stream)
-	connection.s = server
+	connection := newConnection("resource-size-test", stream)
 	connection.proxy = &model.Proxy{
-		ID:               "benchmark",
+		ID:               "resource-size-test",
 		Metadata:         &model.NodeMetadata{},
 		WatchedResources: make(map[string]*model.WatchedResource),
 	}
 	watched := &model.WatchedResource{TypeUrl: v3.ClusterType}
-	request := &model.PushRequest{Push: &model.PushContext{PushVersion: "benchmark"}}
+	// An empty ConfigsUpdated set selects pushXds's default info-log branch.
+	request := &model.PushRequest{Push: &model.PushContext{PushVersion: "resource-size-test"}}
 
 	oldLogLevel := log.GetOutputLevel()
 	log.SetOutputLevel(istiolog.NoneLevel)
@@ -90,38 +94,59 @@ func newResourceSizePushOperation(t testing.TB, resourceCount int) func() error 
 		log.SetOutputLevel(oldLogLevel)
 	})
 
-	push := func() error {
-		return server.pushXds(connection, watched, request)
-	}
-	if err := push(); err != nil {
+	if err := server.pushXds(connection, watched, request); err != nil {
 		t.Fatalf("pushXds failed: %v", err)
 	}
 	if stream.response == nil {
 		t.Fatal("pushXds did not send a response")
 	}
-	if got := len(stream.response.Resources); got != resourceCount {
-		t.Fatalf("sent %d resources, want %d", got, resourceCount)
+	if got := len(stream.response.Resources); got != len(resources) {
+		t.Fatalf("sent %d resources, want %d", got, len(resources))
 	}
-	if got, want := ResourceSize(resources), resourceCount*resourceSizeBenchmarkPayloadBytes; got != want {
+	if got, want := ResourceSize(resources), len(resources)*resourceSizeBenchmarkPayloadBytes; got != want {
 		t.Fatalf("ResourceSize() = %d, want %d", got, want)
-	}
-	return push
-}
-
-func TestPushXdsResourceSize(t *testing.T) {
-	push := newResourceSizePushOperation(t, 3)
-	if err := push(); err != nil {
-		t.Fatalf("pushXds failed: %v", err)
 	}
 }
 
 func BenchmarkPushXdsResourceSize(b *testing.B) {
-	push := newResourceSizePushOperation(b, 4096)
+	resourceCount := resourceSizeBenchmarkResourceCount
+	resources := newResourceSizeBenchmarkResources(resourceCount)
+	stream := &resourceSizeBenchmarkStream{}
+	server := &DiscoveryServer{Generators: map[string]model.XdsResourceGenerator{
+		v3.ClusterType: resourceSizeBenchmarkGenerator{resources: resources},
+	}}
+	connection := newConnection("resource-size-benchmark", stream)
+	connection.proxy = &model.Proxy{
+		ID:               "resource-size-benchmark",
+		Metadata:         &model.NodeMetadata{},
+		WatchedResources: make(map[string]*model.WatchedResource),
+	}
+	watched := &model.WatchedResource{TypeUrl: v3.ClusterType}
+	// An empty ConfigsUpdated set selects pushXds's default info-log branch.
+	request := &model.PushRequest{Push: &model.PushContext{PushVersion: "resource-size-benchmark"}}
+
+	oldLogLevel := log.GetOutputLevel()
+	log.SetOutputLevel(istiolog.NoneLevel)
+	b.Cleanup(func() {
+		log.SetOutputLevel(oldLogLevel)
+	})
+
+	if err := server.pushXds(connection, watched, request); err != nil {
+		b.Fatalf("pushXds failed: %v", err)
+	}
+	if stream.response == nil || len(stream.response.Resources) != resourceCount {
+		b.Fatal("pushXds did not send the expected response")
+	}
+
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		if err := push(); err != nil {
+		if err := server.pushXds(connection, watched, request); err != nil {
 			b.Fatal(err)
 		}
+	}
+	b.StopTimer()
+	if stream.response == nil || len(stream.response.Resources) != resourceCount {
+		b.Fatal("pushXds did not retain the expected response")
 	}
 }
