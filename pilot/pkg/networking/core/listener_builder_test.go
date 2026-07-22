@@ -554,6 +554,69 @@ func TestListenerBuilderPatchListeners(t *testing.T) {
 	}
 }
 
+func TestOutboundFallthroughFiltersAreIsolatedForEnvoyFilterPatches(t *testing.T) {
+	const (
+		patchedPort       = 8080
+		untouchedPort     = 8081
+		patchedFilterName = "envoy.filters.network.tcp_proxy.patched"
+	)
+
+	patches := []*networking.EnvoyFilter_EnvoyConfigObjectPatch{{
+		ApplyTo: networking.EnvoyFilter_NETWORK_FILTER,
+		Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+			Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+			ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+				Listener: &networking.EnvoyFilter_ListenerMatch{
+					PortNumber: patchedPort,
+					FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+						Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{Name: wellknown.TCPProxy},
+					},
+				},
+			},
+		},
+		Patch: &networking.EnvoyFilter_Patch{
+			Operation: networking.EnvoyFilter_Patch_MERGE,
+			Value:     buildPatchStruct(`{"name":"envoy.filters.network.tcp_proxy.patched"}`),
+		},
+	}}
+	services := []*model.Service{
+		buildService("patched.example.com", "1.2.3.4", "unknown", tnow),
+		buildService("untouched.example.com", "2.3.4.5", "unknown", tnow),
+	}
+	services[1].Ports[0].Port = untouchedPort
+
+	cg := NewConfigGenTest(t, TestOptions{
+		Services: services,
+		Configs:  getEnvoyFilterConfigs(patches),
+	})
+	listeners := cg.Listeners(cg.SetupProxy(getProxy()))
+
+	for _, tt := range []struct {
+		name string
+		port int
+		want string
+	}{
+		{name: "patched listener", port: patchedPort, want: patchedFilterName},
+		{name: "untouched listener", port: untouchedPort, want: wellknown.TCPProxy},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			l := findListenerByPort(listeners, uint32(tt.port))
+			if l == nil {
+				t.Fatalf("listener for port %d not found", tt.port)
+			}
+			if l.DefaultFilterChain == nil {
+				t.Fatalf("listener for port %d has no default filter chain", tt.port)
+			}
+			for _, filter := range l.DefaultFilterChain.Filters {
+				if filter.Name == tt.want {
+					return
+				}
+			}
+			t.Fatalf("listener for port %d default filter chain does not contain %q: %v", tt.port, tt.want, l.DefaultFilterChain.Filters)
+		})
+	}
+}
+
 func buildPatchStruct(config string) *structpb.Struct {
 	val := &structpb.Struct{}
 	_ = protomarshal.UnmarshalString(config, val)
