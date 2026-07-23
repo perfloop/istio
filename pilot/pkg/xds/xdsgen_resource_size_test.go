@@ -29,7 +29,7 @@ import (
 
 const resourceSizeBenchmarkPayloadBytes = 128
 
-var resourceSizeBenchmarkResourceCount = 4096
+var resourceSizeBenchmarkResourceCount = 16384
 
 type resourceSizeBenchmarkGenerator struct {
 	resources model.Resources
