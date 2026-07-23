@@ -188,7 +188,7 @@ func (s *DiscoveryServer) pushXds(con *Connection, w *model.WatchedResource, req
 			debug = " nonce:" + resp.Nonce + " version:" + resp.VersionInfo
 		}
 		log.Infof("%s: %s%s for node:%s resources:%d size:%v%s%s", v3.GetShortType(w.TypeUrl), ptype, req.PushReason(), con.proxy.ID, len(res),
-			util.ByteCount(ResourceSize(res)), info, debug)
+			util.ByteCount(configSize), info, debug)
 	}
 
 	return nil
