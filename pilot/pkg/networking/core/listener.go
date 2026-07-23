@@ -30,6 +30,7 @@ import (
 	tcp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	envoyquicv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/quic/v3"
 	auth "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	googleproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -559,9 +560,12 @@ func (lb *ListenerBuilder) buildSidecarOutboundListeners(node *model.Proxy,
 
 func finalizeOutboundListeners(lb *ListenerBuilder, listenerMap map[listenerKey]*outboundListenerEntry) []*listener.Listener {
 	listeners := make([]*listener.Listener, 0, len(listenerMap))
+	fallthroughNetworkFiltersTemplate := buildOutboundCatchAllNetworkFiltersOnly(lb.push, lb.node)
 	for _, le := range listenerMap {
-		// TODO: this could be outside the loop, but we would get object sharing in EnvoyFilter patches.
-		fallthroughNetworkFilters := buildOutboundCatchAllNetworkFiltersOnly(lb.push, lb.node)
+		fallthroughNetworkFilters := make([]*listener.Filter, len(fallthroughNetworkFiltersTemplate))
+		for i, filter := range fallthroughNetworkFiltersTemplate {
+			fallthroughNetworkFilters[i] = googleproto.Clone(filter).(*listener.Filter)
+		}
 		l := buildListenerFromEntry(lb, le, fallthroughNetworkFilters)
 		listeners = append(listeners, l)
 	}
