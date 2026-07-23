@@ -51,5 +51,5 @@ func BenchmarkFinalizeOutboundListeners(b *testing.B) {
 			b.Fatalf("listener %q has no fallthrough filter chain", listener.Name)
 		}
 	}
-	b.ReportMetric(float64(listenerCount), "listeners/op")
+	b.ReportMetric(float64(len(listeners)), "listeners/op")
 }
